@@ -1,0 +1,477 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "_generator": {
+      "name": "bicep",
+      "version": "0.42.1.51946",
+      "templateHash": "4888623499916989580"
+    }
+  },
+  "parameters": {
+    "projectName": {
+      "type": "string",
+      "defaultValue": "copilotusage",
+      "metadata": {
+        "description": "Project short name (used for naming)."
+      }
+    },
+    "env": {
+      "type": "string",
+      "defaultValue": "dev",
+      "metadata": {
+        "description": "Environment short tag, e.g. dev, prod."
+      }
+    },
+    "location": {
+      "type": "string",
+      "defaultValue": "southeastasia",
+      "metadata": {
+        "description": "Azure region for all resources."
+      }
+    },
+    "swaLocation": {
+      "type": "string",
+      "defaultValue": "eastasia",
+      "metadata": {
+        "description": "Region for Static Web App. SWA Standard is not in southeastasia; use East Asia."
+      }
+    },
+    "collectorIngestKey": {
+      "type": "securestring",
+      "metadata": {
+        "description": "Pre-shared secret expected in the X-Collector-Key header from collectors."
+      }
+    },
+    "eventsTtlSeconds": {
+      "type": "int",
+      "defaultValue": 31536000,
+      "metadata": {
+        "description": "TTL (seconds) for documents in usage_events container. 0 = infinite."
+      }
+    },
+    "cosmosCapacityMode": {
+      "type": "string",
+      "defaultValue": "serverless",
+      "allowedValues": [
+        "serverless",
+        "provisioned"
+      ],
+      "metadata": {
+        "description": "Cosmos DB capacity mode. \"serverless\" pays per request (best for self-only usage). \"provisioned\" reserves 1000 RU/s shared across the DB."
+      }
+    },
+    "cosmosFreeTier": {
+      "type": "bool",
+      "defaultValue": false,
+      "metadata": {
+        "description": "Enable Cosmos DB Free Tier. NOT supported on internal Microsoft subscriptions."
+      }
+    },
+    "tags": {
+      "type": "object",
+      "defaultValue": {
+        "project": "copilot-usage-portal",
+        "env": "[parameters('env')]"
+      },
+      "metadata": {
+        "description": "Tags applied to all resources."
+      }
+    }
+  },
+  "variables": {
+    "rgSuffix": "[uniqueString(resourceGroup().id)]",
+    "shortSuffix": "[substring(variables('rgSuffix'), 0, 6)]",
+    "lawName": "[toLower(format('log-{0}-{1}-{2}', parameters('projectName'), parameters('env'), variables('shortSuffix')))]",
+    "aiName": "[toLower(format('ai-{0}-{1}-{2}', parameters('projectName'), parameters('env'), variables('shortSuffix')))]",
+    "storageName": "[toLower(format('st{0}{1}{2}', parameters('projectName'), parameters('env'), variables('shortSuffix')))]",
+    "cosmosName": "[toLower(format('cosmos-{0}-{1}-{2}', parameters('projectName'), parameters('env'), variables('shortSuffix')))]",
+    "planName": "[toLower(format('plan-{0}-{1}-{2}', parameters('projectName'), parameters('env'), variables('shortSuffix')))]",
+    "funcName": "[toLower(format('func-{0}-{1}-{2}', parameters('projectName'), parameters('env'), variables('shortSuffix')))]",
+    "swaName": "[toLower(format('stapp-{0}-{1}-{2}', parameters('projectName'), parameters('env'), variables('shortSuffix')))]",
+    "storageBlobDataOwnerRoleId": "b7e6dc6d-f1e8-4753-8033-0f276bb0955b",
+    "cosmosBuiltInDataContributorRoleId": "00000000-0000-0000-0000-000000000002"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.OperationalInsights/workspaces",
+      "apiVersion": "2023-09-01",
+      "name": "[variables('lawName')]",
+      "location": "[parameters('location')]",
+      "tags": "[parameters('tags')]",
+      "properties": {
+        "sku": {
+          "name": "PerGB2018"
+        },
+        "retentionInDays": 30
+      }
+    },
+    {
+      "type": "Microsoft.Insights/components",
+      "apiVersion": "2020-02-02",
+      "name": "[variables('aiName')]",
+      "location": "[parameters('location')]",
+      "kind": "web",
+      "tags": "[parameters('tags')]",
+      "properties": {
+        "Application_Type": "web",
+        "WorkspaceResourceId": "[resourceId('Microsoft.OperationalInsights/workspaces', variables('lawName'))]"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.OperationalInsights/workspaces', variables('lawName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Storage/storageAccounts",
+      "apiVersion": "2023-05-01",
+      "name": "[variables('storageName')]",
+      "location": "[parameters('location')]",
+      "tags": "[parameters('tags')]",
+      "kind": "StorageV2",
+      "sku": {
+        "name": "Standard_LRS"
+      },
+      "properties": {
+        "minimumTlsVersion": "TLS1_2",
+        "allowBlobPublicAccess": false,
+        "allowSharedKeyAccess": false,
+        "supportsHttpsTrafficOnly": true
+      }
+    },
+    {
+      "type": "Microsoft.Storage/storageAccounts/blobServices",
+      "apiVersion": "2023-05-01",
+      "name": "[format('{0}/{1}', variables('storageName'), 'default')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('storageName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Storage/storageAccounts/blobServices/containers",
+      "apiVersion": "2023-05-01",
+      "name": "[format('{0}/{1}/{2}', variables('storageName'), 'default', format('app-package-{0}', toLower(variables('funcName'))))]",
+      "properties": {
+        "publicAccess": "None"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts/blobServices', variables('storageName'), 'default')]"
+      ]
+    },
+    {
+      "type": "Microsoft.DocumentDB/databaseAccounts",
+      "apiVersion": "2024-05-15",
+      "name": "[variables('cosmosName')]",
+      "location": "[parameters('location')]",
+      "tags": "[parameters('tags')]",
+      "kind": "GlobalDocumentDB",
+      "properties": {
+        "databaseAccountOfferType": "Standard",
+        "enableFreeTier": "[parameters('cosmosFreeTier')]",
+        "enableAutomaticFailover": false,
+        "consistencyPolicy": {
+          "defaultConsistencyLevel": "Session"
+        },
+        "locations": [
+          {
+            "locationName": "[parameters('location')]",
+            "failoverPriority": 0,
+            "isZoneRedundant": false
+          }
+        ],
+        "capabilities": "[if(equals(parameters('cosmosCapacityMode'), 'serverless'), createArray(createObject('name', 'EnableServerless')), createArray())]",
+        "publicNetworkAccess": "Enabled",
+        "backupPolicy": {
+          "type": "Periodic",
+          "periodicModeProperties": {
+            "backupIntervalInMinutes": 1440,
+            "backupRetentionIntervalInHours": 48,
+            "backupStorageRedundancy": "Local"
+          }
+        }
+      }
+    },
+    {
+      "type": "Microsoft.DocumentDB/databaseAccounts/sqlDatabases",
+      "apiVersion": "2024-05-15",
+      "name": "[format('{0}/{1}', variables('cosmosName'), 'copilot_usage')]",
+      "properties": {
+        "resource": {
+          "id": "copilot_usage"
+        },
+        "options": "[if(equals(parameters('cosmosCapacityMode'), 'provisioned'), createObject('throughput', 1000), createObject())]"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.DocumentDB/databaseAccounts', variables('cosmosName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers",
+      "apiVersion": "2024-05-15",
+      "name": "[format('{0}/{1}/{2}', variables('cosmosName'), 'copilot_usage', 'usage_events')]",
+      "properties": {
+        "resource": {
+          "id": "usage_events",
+          "partitionKey": {
+            "paths": [
+              "/client"
+            ],
+            "kind": "Hash"
+          },
+          "defaultTtl": "[parameters('eventsTtlSeconds')]",
+          "indexingPolicy": {
+            "indexingMode": "consistent",
+            "automatic": true,
+            "includedPaths": [
+              {
+                "path": "/*"
+              }
+            ],
+            "excludedPaths": [
+              {
+                "path": "/_etag/?"
+              }
+            ],
+            "compositeIndexes": [
+              [
+                {
+                  "path": "/date",
+                  "order": "ascending"
+                },
+                {
+                  "path": "/client",
+                  "order": "ascending"
+                }
+              ],
+              [
+                {
+                  "path": "/model",
+                  "order": "ascending"
+                },
+                {
+                  "path": "/date",
+                  "order": "ascending"
+                }
+              ]
+            ]
+          }
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.DocumentDB/databaseAccounts/sqlDatabases', variables('cosmosName'), 'copilot_usage')]"
+      ]
+    },
+    {
+      "type": "Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers",
+      "apiVersion": "2024-05-15",
+      "name": "[format('{0}/{1}/{2}', variables('cosmosName'), 'copilot_usage', 'cost_table')]",
+      "properties": {
+        "resource": {
+          "id": "cost_table",
+          "partitionKey": {
+            "paths": [
+              "/id"
+            ],
+            "kind": "Hash"
+          }
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.DocumentDB/databaseAccounts/sqlDatabases', variables('cosmosName'), 'copilot_usage')]"
+      ]
+    },
+    {
+      "type": "Microsoft.Web/serverfarms",
+      "apiVersion": "2023-12-01",
+      "name": "[variables('planName')]",
+      "location": "[parameters('location')]",
+      "tags": "[parameters('tags')]",
+      "kind": "functionapp,linux",
+      "sku": {
+        "name": "FC1",
+        "tier": "FlexConsumption"
+      },
+      "properties": {
+        "reserved": true
+      }
+    },
+    {
+      "type": "Microsoft.Web/sites",
+      "apiVersion": "2023-12-01",
+      "name": "[variables('funcName')]",
+      "location": "[parameters('location')]",
+      "kind": "functionapp,linux",
+      "tags": "[parameters('tags')]",
+      "identity": {
+        "type": "SystemAssigned"
+      },
+      "properties": {
+        "serverFarmId": "[resourceId('Microsoft.Web/serverfarms', variables('planName'))]",
+        "httpsOnly": true,
+        "functionAppConfig": {
+          "deployment": {
+            "storage": {
+              "type": "blobContainer",
+              "value": "[format('{0}{1}', reference(resourceId('Microsoft.Storage/storageAccounts', variables('storageName')), '2023-05-01').primaryEndpoints.blob, format('app-package-{0}', toLower(variables('funcName'))))]",
+              "authentication": {
+                "type": "SystemAssignedIdentity"
+              }
+            }
+          },
+          "runtime": {
+            "name": "python",
+            "version": "3.11"
+          },
+          "scaleAndConcurrency": {
+            "maximumInstanceCount": 40,
+            "instanceMemoryMB": 2048
+          }
+        },
+        "siteConfig": {
+          "ftpsState": "FtpsOnly",
+          "minTlsVersion": "1.2",
+          "cors": {
+            "allowedOrigins": [
+              "https://portal.azure.com"
+            ],
+            "supportCredentials": false
+          },
+          "appSettings": [
+            {
+              "name": "AzureWebJobsStorage__accountName",
+              "value": "[variables('storageName')]"
+            },
+            {
+              "name": "APPLICATIONINSIGHTS_CONNECTION_STRING",
+              "value": "[reference(resourceId('Microsoft.Insights/components', variables('aiName')), '2020-02-02').ConnectionString]"
+            },
+            {
+              "name": "COSMOS_ENDPOINT",
+              "value": "[reference(resourceId('Microsoft.DocumentDB/databaseAccounts', variables('cosmosName')), '2024-05-15').documentEndpoint]"
+            },
+            {
+              "name": "COSMOS_DATABASE",
+              "value": "copilot_usage"
+            },
+            {
+              "name": "COSMOS_EVENTS_CONTAINER",
+              "value": "usage_events"
+            },
+            {
+              "name": "COSMOS_COST_CONTAINER",
+              "value": "cost_table"
+            },
+            {
+              "name": "INGEST_KEY",
+              "value": "[parameters('collectorIngestKey')]"
+            },
+            {
+              "name": "PYTHON_ENABLE_WORKER_EXTENSIONS",
+              "value": "1"
+            }
+          ]
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Insights/components', variables('aiName'))]",
+        "[resourceId('Microsoft.DocumentDB/databaseAccounts', variables('cosmosName'))]",
+        "[resourceId('Microsoft.DocumentDB/databaseAccounts/sqlDatabases', variables('cosmosName'), 'copilot_usage')]",
+        "[resourceId('Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers', variables('cosmosName'), 'copilot_usage', 'cost_table')]",
+        "[resourceId('Microsoft.Storage/storageAccounts/blobServices/containers', variables('storageName'), 'default', format('app-package-{0}', toLower(variables('funcName'))))]",
+        "[resourceId('Microsoft.Web/serverfarms', variables('planName'))]",
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('storageName'))]",
+        "[resourceId('Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers', variables('cosmosName'), 'copilot_usage', 'usage_events')]"
+      ]
+    },
+    {
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "scope": "[resourceId('Microsoft.Storage/storageAccounts', variables('storageName'))]",
+      "name": "[guid(resourceId('Microsoft.Storage/storageAccounts', variables('storageName')), resourceId('Microsoft.Web/sites', variables('funcName')), 'storage-blob-data-owner')]",
+      "properties": {
+        "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('storageBlobDataOwnerRoleId'))]",
+        "principalId": "[reference(resourceId('Microsoft.Web/sites', variables('funcName')), '2023-12-01', 'full').identity.principalId]",
+        "principalType": "ServicePrincipal"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Web/sites', variables('funcName'))]",
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('storageName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.DocumentDB/databaseAccounts/sqlRoleAssignments",
+      "apiVersion": "2024-05-15",
+      "name": "[format('{0}/{1}', variables('cosmosName'), guid(resourceId('Microsoft.DocumentDB/databaseAccounts', variables('cosmosName')), resourceId('Microsoft.Web/sites', variables('funcName')), 'cosmos-data-contributor'))]",
+      "properties": {
+        "roleDefinitionId": "[format('{0}/sqlRoleDefinitions/{1}', resourceId('Microsoft.DocumentDB/databaseAccounts', variables('cosmosName')), variables('cosmosBuiltInDataContributorRoleId'))]",
+        "principalId": "[reference(resourceId('Microsoft.Web/sites', variables('funcName')), '2023-12-01', 'full').identity.principalId]",
+        "scope": "[resourceId('Microsoft.DocumentDB/databaseAccounts', variables('cosmosName'))]"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.DocumentDB/databaseAccounts', variables('cosmosName'))]",
+        "[resourceId('Microsoft.Web/sites', variables('funcName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Web/staticSites",
+      "apiVersion": "2023-12-01",
+      "name": "[variables('swaName')]",
+      "location": "[parameters('swaLocation')]",
+      "tags": "[parameters('tags')]",
+      "sku": {
+        "name": "Standard",
+        "tier": "Standard"
+      },
+      "properties": {
+        "allowConfigFileUpdates": true,
+        "stagingEnvironmentPolicy": "Disabled"
+      }
+    },
+    {
+      "type": "Microsoft.Web/staticSites/linkedBackends",
+      "apiVersion": "2023-12-01",
+      "name": "[format('{0}/{1}', variables('swaName'), 'default')]",
+      "properties": {
+        "backendResourceId": "[resourceId('Microsoft.Web/sites', variables('funcName'))]",
+        "region": "[parameters('location')]"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Web/sites', variables('funcName'))]",
+        "[resourceId('Microsoft.Web/staticSites', variables('swaName'))]"
+      ]
+    }
+  ],
+  "outputs": {
+    "cosmosEndpoint": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.DocumentDB/databaseAccounts', variables('cosmosName')), '2024-05-15').documentEndpoint]"
+    },
+    "cosmosDatabaseName": {
+      "type": "string",
+      "value": "copilot_usage"
+    },
+    "functionAppName": {
+      "type": "string",
+      "value": "[variables('funcName')]"
+    },
+    "functionAppHostName": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Web/sites', variables('funcName')), '2023-12-01').defaultHostName]"
+    },
+    "staticWebAppName": {
+      "type": "string",
+      "value": "[variables('swaName')]"
+    },
+    "staticWebAppHostName": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Web/staticSites', variables('swaName')), '2023-12-01').defaultHostname]"
+    },
+    "appInsightsConnectionString": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Insights/components', variables('aiName')), '2020-02-02').ConnectionString]"
+    },
+    "storageAccountName": {
+      "type": "string",
+      "value": "[variables('storageName')]"
+    }
+  }
+}

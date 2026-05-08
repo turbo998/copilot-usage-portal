@@ -1,0 +1,27 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "projectName": {
+      "value": "copilotusage"
+    },
+    "env": {
+      "value": "dev"
+    },
+    "location": {
+      "value": "southeastasia"
+    },
+    "swaLocation": {
+      "value": "eastasia"
+    },
+    "cosmosCapacityMode": {
+      "value": "serverless"
+    },
+    "cosmosFreeTier": {
+      "value": false
+    },
+    "collectorIngestKey": {
+      "value": "REPLACE_WITH_GENERATED_KEY"
+    }
+  }
+}

@@ -1,0 +1,147 @@
+[
+  {
+    "id": "claude-opus-4-7",
+    "model": "claude-opus-4-7",
+    "model_family": "claude",
+    "credits_per_million_input": 7.5,
+    "credits_per_million_output": 30.0,
+    "credits_per_million_cached_input": 0.75,
+    "source": "https://docs.github.com/en/copilot/concepts/billing/individual-plans",
+    "captured_at": "2026-05-07",
+    "notes": "GitHub Copilot Pro AI Credits per million tokens. Verify against docs before relying on cost figures."
+  },
+  {
+    "id": "claude-opus-4-6",
+    "model": "claude-opus-4-6",
+    "model_family": "claude",
+    "credits_per_million_input": 7.5,
+    "credits_per_million_output": 30.0,
+    "credits_per_million_cached_input": 0.75,
+    "source": "https://docs.github.com/en/copilot/concepts/billing/individual-plans",
+    "captured_at": "2026-05-07"
+  },
+  {
+    "id": "claude-sonnet-4-5",
+    "model": "claude-sonnet-4-5",
+    "model_family": "claude",
+    "credits_per_million_input": 3.0,
+    "credits_per_million_output": 15.0,
+    "credits_per_million_cached_input": 0.3,
+    "source": "https://docs.github.com/en/copilot/concepts/billing/individual-plans",
+    "captured_at": "2026-05-07"
+  },
+  {
+    "id": "claude-sonnet-4-6",
+    "model": "claude-sonnet-4-6",
+    "model_family": "claude",
+    "credits_per_million_input": 3.0,
+    "credits_per_million_output": 15.0,
+    "credits_per_million_cached_input": 0.3,
+    "source": "https://docs.github.com/en/copilot/concepts/billing/individual-plans",
+    "captured_at": "2026-05-07"
+  },
+  {
+    "id": "claude-haiku-4-5",
+    "model": "claude-haiku-4-5",
+    "model_family": "claude",
+    "credits_per_million_input": 1.0,
+    "credits_per_million_output": 5.0,
+    "credits_per_million_cached_input": 0.1,
+    "source": "https://docs.github.com/en/copilot/concepts/billing/individual-plans",
+    "captured_at": "2026-05-07"
+  },
+  {
+    "id": "claude-opus-4-6-1m",
+    "model": "claude-opus-4-6-1m",
+    "model_family": "claude",
+    "credits_per_million_input": 15.0,
+    "credits_per_million_output": 60.0,
+    "credits_per_million_cached_input": 1.5,
+    "source": "https://docs.anthropic.com/en/docs/about-claude/pricing",
+    "captured_at": "2026-05-07",
+    "notes": "1M context window — typically 2x base rate. Verify before relying on cost figures."
+  },
+  {
+    "id": "claude-opus-4-7-1m",
+    "model": "claude-opus-4-7-1m",
+    "model_family": "claude",
+    "credits_per_million_input": 15.0,
+    "credits_per_million_output": 60.0,
+    "credits_per_million_cached_input": 1.5,
+    "source": "https://docs.anthropic.com/en/docs/about-claude/pricing",
+    "captured_at": "2026-05-07",
+    "notes": "1M context window — typically 2x base rate. Verify before relying on cost figures."
+  },
+  {
+    "id": "gpt-5",
+    "model": "gpt-5",
+    "model_family": "gpt",
+    "credits_per_million_input": 1.25,
+    "credits_per_million_output": 10.0,
+    "credits_per_million_cached_input": 0.125,
+    "source": "https://docs.github.com/en/copilot/concepts/billing/individual-plans",
+    "captured_at": "2026-05-07"
+  },
+  {
+    "id": "gpt-5-mini",
+    "model": "gpt-5-mini",
+    "model_family": "gpt",
+    "credits_per_million_input": 0.25,
+    "credits_per_million_output": 2.0,
+    "credits_per_million_cached_input": 0.025,
+    "source": "https://docs.github.com/en/copilot/concepts/billing/individual-plans",
+    "captured_at": "2026-05-07"
+  },
+  {
+    "id": "gpt-4-1",
+    "model": "gpt-4-1",
+    "model_family": "gpt",
+    "credits_per_million_input": 2.5,
+    "credits_per_million_output": 10.0,
+    "credits_per_million_cached_input": 0.625,
+    "source": "https://docs.github.com/en/copilot/concepts/billing/individual-plans",
+    "captured_at": "2026-05-07"
+  },
+  {
+    "id": "o3-mini",
+    "model": "o3-mini",
+    "model_family": "gpt",
+    "credits_per_million_input": 1.1,
+    "credits_per_million_output": 4.4,
+    "credits_per_million_cached_input": 0.55,
+    "source": "https://docs.github.com/en/copilot/concepts/billing/individual-plans",
+    "captured_at": "2026-05-07"
+  },
+  {
+    "id": "gpt-5-codex",
+    "model": "gpt-5-codex",
+    "model_family": "gpt",
+    "credits_per_million_input": 1.25,
+    "credits_per_million_output": 10.0,
+    "credits_per_million_cached_input": 0.125,
+    "source": "GitHub Copilot — Codex variant priced same as base gpt-5",
+    "captured_at": "2026-05-07",
+    "notes": "Estimated; verify against docs."
+  },
+  {
+    "id": "gpt-5-nano",
+    "model": "gpt-5-nano",
+    "model_family": "gpt",
+    "credits_per_million_input": 0.05,
+    "credits_per_million_output": 0.4,
+    "credits_per_million_cached_input": 0.005,
+    "source": "GitHub Copilot — nano tier",
+    "captured_at": "2026-05-07",
+    "notes": "Estimated; verify against docs."
+  },
+  {
+    "id": "gpt-4o-mini",
+    "model": "gpt-4o-mini",
+    "model_family": "gpt",
+    "credits_per_million_input": 0.15,
+    "credits_per_million_output": 0.6,
+    "credits_per_million_cached_input": 0.075,
+    "source": "https://platform.openai.com/docs/pricing",
+    "captured_at": "2026-05-07"
+  }
+]

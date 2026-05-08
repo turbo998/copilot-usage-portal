@@ -1,0 +1,51 @@
+project:
+  id: 977be182-4f2c-4d13-aec0-88f09996068c
+  name: copilot-usage-portal
+  location: eastasia
+  environment: dev
+  created: '2026-05-07T09:38:19.872185+00:00'
+  iac_tool: bicep
+naming:
+  strategy: microsoft-alz
+  org: ''
+  env: dev
+  zone_id: zd
+ai:
+  provider: copilot
+  model: claude-sonnet-4.5
+  azure_openai:
+    endpoint: ''
+    deployment: gpt-4o
+agents:
+  custom_dir: .prototype/agents/
+  custom: {}
+  overrides: {}
+deploy:
+  track_changes: true
+  subscription: ''
+  resource_group: ''
+  tenant: ''
+  service_principal: ''
+  generated_secrets: ''
+backlog:
+  provider: github
+  org: ''
+  project: ''
+  token: ''
+mcp:
+  servers: ''
+  custom_dir: .prototype/mcp/
+stages:
+  init:
+    completed: true
+    timestamp: '2026-05-07T09:38:19.892831+00:00'
+  design:
+    completed: false
+    timestamp: null
+    iterations: 0
+  build:
+    completed: false
+    timestamp: null
+  deploy:
+    completed: false
+    timestamp: null
