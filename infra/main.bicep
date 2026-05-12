@@ -38,6 +38,15 @@ param cosmosCapacityMode string = 'serverless'
 @description('Enable Cosmos DB Free Tier. NOT supported on internal Microsoft subscriptions.')
 param cosmosFreeTier bool = false
 
+@description('CIDR for the workload VNet (must not collide with any peered network).')
+param vnetAddressSpace string = '10.30.0.0/16'
+
+@description('Subnet for Function App regional VNet integration (egress only). Delegated to Microsoft.App/environments. Needs >= /26 to be safe.')
+param funcSubnetCidr string = '10.30.1.0/24'
+
+@description('Subnet hosting Private Endpoints for Storage and Cosmos. Small subnet is fine; /28 supports up to 11 PEs.')
+param peSubnetCidr string = '10.30.2.0/27'
+
 @description('Tags applied to all resources.')
 param tags object = {
   project: 'copilot-usage-portal'
@@ -56,6 +65,9 @@ var cosmosName  = toLower('cosmos-${projectName}-${env}-${shortSuffix}')
 var planName    = toLower('plan-${projectName}-${env}-${shortSuffix}')
 var funcName    = toLower('func-${projectName}-${env}-${shortSuffix}')
 var swaName     = toLower('stapp-${projectName}-${env}-${shortSuffix}')
+var vnetName        = toLower('vnet-${projectName}-${env}-${shortSuffix}')
+var funcSubnetName  = 'snet-func-integration'
+var peSubnetName    = 'snet-pe'
 
 // -----------------------------------------------------------------------------
 // Log Analytics + App Insights
@@ -80,6 +92,123 @@ resource appInsights 'Microsoft.Insights/components@2020-02-02' = {
   properties: {
     Application_Type: 'web'
     WorkspaceResourceId: law.id
+  }
+}
+
+// -----------------------------------------------------------------------------
+// VNet for Function App egress + Private Endpoints for Storage/Cosmos
+// MCAPS policy resets publicNetworkAccess to Disabled on data services; this
+// VNet + PE topology lets the Function App keep working regardless.
+// -----------------------------------------------------------------------------
+resource vnet 'Microsoft.Network/virtualNetworks@2024-01-01' = {
+  name: vnetName
+  location: location
+  tags: tags
+  properties: {
+    addressSpace: {
+      addressPrefixes: [
+        vnetAddressSpace
+      ]
+    }
+    subnets: [
+      {
+        // Regional VNet integration target for the Flex Consumption Function App.
+        // Flex Consumption requires the subnet to be delegated to
+        // 'Microsoft.App/environments'. The subnet must be empty before
+        // delegation, and cannot be shared with PEs / NICs.
+        name: funcSubnetName
+        properties: {
+          addressPrefix: funcSubnetCidr
+          delegations: [
+            {
+              name: 'flex-consumption-delegation'
+              properties: {
+                serviceName: 'Microsoft.App/environments'
+              }
+            }
+          ]
+          privateEndpointNetworkPolicies: 'Disabled'
+          privateLinkServiceNetworkPolicies: 'Enabled'
+        }
+      }
+      {
+        // Dedicated subnet for Private Endpoints (Storage blob/queue + Cosmos).
+        // PE network policies must be disabled for the NICs to be created.
+        name: peSubnetName
+        properties: {
+          addressPrefix: peSubnetCidr
+          privateEndpointNetworkPolicies: 'Disabled'
+          privateLinkServiceNetworkPolicies: 'Enabled'
+        }
+      }
+    ]
+  }
+}
+
+resource funcSubnet 'Microsoft.Network/virtualNetworks/subnets@2024-01-01' existing = {
+  parent: vnet
+  name: funcSubnetName
+}
+
+resource peSubnet 'Microsoft.Network/virtualNetworks/subnets@2024-01-01' existing = {
+  parent: vnet
+  name: peSubnetName
+}
+
+// Private DNS zones (privatelink.* — global resources, location must be 'global')
+// They are linked to the VNet so the Function App resolves
+// *.blob.core.windows.net / *.documents.azure.com to the PE's private IP.
+resource dnsZoneBlob 'Microsoft.Network/privateDnsZones@2024-06-01' = {
+  name: 'privatelink.blob.${environment().suffixes.storage}'
+  location: 'global'
+  tags: tags
+}
+
+resource dnsZoneQueue 'Microsoft.Network/privateDnsZones@2024-06-01' = {
+  name: 'privatelink.queue.${environment().suffixes.storage}'
+  location: 'global'
+  tags: tags
+}
+
+resource dnsZoneCosmos 'Microsoft.Network/privateDnsZones@2024-06-01' = {
+  name: 'privatelink.documents.azure.com'
+  location: 'global'
+  tags: tags
+}
+
+resource dnsLinkBlob 'Microsoft.Network/privateDnsZones/virtualNetworkLinks@2024-06-01' = {
+  parent: dnsZoneBlob
+  name: '${vnetName}-link'
+  location: 'global'
+  properties: {
+    virtualNetwork: {
+      id: vnet.id
+    }
+    registrationEnabled: false
+  }
+}
+
+resource dnsLinkQueue 'Microsoft.Network/privateDnsZones/virtualNetworkLinks@2024-06-01' = {
+  parent: dnsZoneQueue
+  name: '${vnetName}-link'
+  location: 'global'
+  properties: {
+    virtualNetwork: {
+      id: vnet.id
+    }
+    registrationEnabled: false
+  }
+}
+
+resource dnsLinkCosmos 'Microsoft.Network/privateDnsZones/virtualNetworkLinks@2024-06-01' = {
+  parent: dnsZoneCosmos
+  name: '${vnetName}-link'
+  location: 'global'
+  properties: {
+    virtualNetwork: {
+      id: vnet.id
+    }
+    registrationEnabled: false
   }
 }
 
@@ -251,6 +380,11 @@ resource funcApp 'Microsoft.Web/sites@2023-12-01' = {
   properties: {
     serverFarmId: plan.id
     httpsOnly: true
+    // Regional VNet integration: outbound traffic from the Function App
+    // egresses through snet-func-integration so it hits the Storage/Cosmos
+    // private endpoints via the linked private DNS zones.
+    virtualNetworkSubnetId: funcSubnet.id
+    vnetRouteAllEnabled: true
     functionAppConfig: {
       deployment: {
         storage: {
@@ -319,6 +453,122 @@ resource cosmosRole 'Microsoft.DocumentDB/databaseAccounts/sqlRoleAssignments@20
     roleDefinitionId: '${cosmos.id}/sqlRoleDefinitions/${cosmosBuiltInDataContributorRoleId}'
     principalId: funcApp.identity.principalId
     scope: cosmos.id
+  }
+}
+
+// -----------------------------------------------------------------------------
+// Private Endpoints — Storage (blob + queue) and Cosmos (sql)
+// Each PE lives in snet-pe, and has a dnsZoneGroup that auto-registers an A
+// record in the matching private DNS zone for the VNet to resolve.
+// -----------------------------------------------------------------------------
+resource peStorageBlob 'Microsoft.Network/privateEndpoints@2024-01-01' = {
+  name: 'pe-${storageName}-blob'
+  location: location
+  tags: tags
+  properties: {
+    subnet: {
+      id: peSubnet.id
+    }
+    privateLinkServiceConnections: [
+      {
+        name: 'blob'
+        properties: {
+          privateLinkServiceId: storage.id
+          groupIds: [
+            'blob'
+          ]
+        }
+      }
+    ]
+  }
+}
+
+resource peStorageBlobDnsGroup 'Microsoft.Network/privateEndpoints/privateDnsZoneGroups@2024-01-01' = {
+  parent: peStorageBlob
+  name: 'default'
+  properties: {
+    privateDnsZoneConfigs: [
+      {
+        name: 'blob'
+        properties: {
+          privateDnsZoneId: dnsZoneBlob.id
+        }
+      }
+    ]
+  }
+}
+
+resource peStorageQueue 'Microsoft.Network/privateEndpoints@2024-01-01' = {
+  name: 'pe-${storageName}-queue'
+  location: location
+  tags: tags
+  properties: {
+    subnet: {
+      id: peSubnet.id
+    }
+    privateLinkServiceConnections: [
+      {
+        name: 'queue'
+        properties: {
+          privateLinkServiceId: storage.id
+          groupIds: [
+            'queue'
+          ]
+        }
+      }
+    ]
+  }
+}
+
+resource peStorageQueueDnsGroup 'Microsoft.Network/privateEndpoints/privateDnsZoneGroups@2024-01-01' = {
+  parent: peStorageQueue
+  name: 'default'
+  properties: {
+    privateDnsZoneConfigs: [
+      {
+        name: 'queue'
+        properties: {
+          privateDnsZoneId: dnsZoneQueue.id
+        }
+      }
+    ]
+  }
+}
+
+resource peCosmosSql 'Microsoft.Network/privateEndpoints@2024-01-01' = {
+  name: 'pe-${cosmosName}-sql'
+  location: location
+  tags: tags
+  properties: {
+    subnet: {
+      id: peSubnet.id
+    }
+    privateLinkServiceConnections: [
+      {
+        name: 'sql'
+        properties: {
+          privateLinkServiceId: cosmos.id
+          groupIds: [
+            'Sql'
+          ]
+        }
+      }
+    ]
+  }
+}
+
+resource peCosmosSqlDnsGroup 'Microsoft.Network/privateEndpoints/privateDnsZoneGroups@2024-01-01' = {
+  parent: peCosmosSql
+  name: 'default'
+  properties: {
+    privateDnsZoneConfigs: [
+      {
+        name: 'cosmos'
+        properties: {
+          privateDnsZoneId: dnsZoneCosmos.id
+        }
+      }
+    ]
   }
 }
 

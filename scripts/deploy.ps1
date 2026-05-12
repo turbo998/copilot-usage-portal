@@ -42,6 +42,32 @@ function Assert-LastSuccess($what) {
     if ($LASTEXITCODE -ne 0) { throw "$what failed (exit $LASTEXITCODE)" }
 }
 
+function Get-DeployerPublicIp {
+    foreach ($svc in @('https://api.ipify.org', 'https://ifconfig.me/ip', 'https://icanhazip.com')) {
+        try {
+            $ip = (Invoke-WebRequest -Uri $svc -UseBasicParsing -TimeoutSec 5).Content.Trim()
+            if ($ip -match '^\d{1,3}(\.\d{1,3}){3}$') { return $ip }
+        } catch { }
+    }
+    throw 'Could not determine deployer public IP (tried ipify/ifconfig/icanhazip).'
+}
+
+function Add-DeployerIpToStorage {
+    param([string]$Rg, [string]$Sa, [string]$Ip)
+    Write-Host "    + Adding $Ip to $Sa network rules (storage default=Deny)" -ForegroundColor DarkGray
+    az storage account network-rule add `
+        --resource-group $Rg --account-name $Sa --ip-address $Ip --output none 2>$null
+    Start-Sleep -Seconds 20  # rule propagation
+}
+
+function Remove-DeployerIpFromStorage {
+    param([string]$Rg, [string]$Sa, [string]$Ip)
+    if (-not $Ip) { return }
+    Write-Host "    - Removing $Ip from $Sa network rules" -ForegroundColor DarkGray
+    az storage account network-rule remove `
+        --resource-group $Rg --account-name $Sa --ip-address $Ip --output none 2>$null
+}
+
 # 0. Ensure az is logged in
 Write-Step 'Verifying az login'
 $acct = az account show --output json 2>$null | ConvertFrom-Json
@@ -86,20 +112,37 @@ $swaName         = $outputs.staticWebAppName.value
 $swaHost         = $outputs.staticWebAppHostName.value
 $cosmosEndpoint  = $outputs.cosmosEndpoint.value
 $cosmosDb        = $outputs.cosmosDatabaseName.value
+$storageName     = $outputs.storageAccountName.value
 
 Write-Host "    Function App  : $funcName ($funcHost)"
 Write-Host "    Static Web App: $swaName ($swaHost)"
 Write-Host "    Cosmos DB     : $cosmosEndpoint / $cosmosDb"
+Write-Host "    Storage       : $storageName"
 
 # 4. Publish Functions
+# Storage is locked down (networkAcls.defaultAction=Deny) so the local zip-upload
+# fails unless we punch a temporary hole for the deployer's public IP. We always
+# remove the rule afterwards (try/finally), and leave defaultAction=Deny so the
+# storage stays MCAPS-friendly.
 Write-Step 'Publishing Functions (func azure functionapp publish)'
-Push-Location (Join-Path $root 'api')
+$deployerIp = $null
 try {
-    if (-not (Get-Command func -ErrorAction SilentlyContinue)) {
-        throw 'Azure Functions Core Tools (func) not found. Install via: npm i -g azure-functions-core-tools@4'
-    }
-    func azure functionapp publish $funcName --python --build remote
-} finally { Pop-Location }
+    $deployerIp = Get-DeployerPublicIp
+    Write-Host "    Deployer IP: $deployerIp"
+    # Ensure publicNetworkAccess is Enabled (MCAPS may have flipped it).
+    az storage account update -g $ResourceGroup -n $storageName --public-network-access Enabled --output none 2>$null
+    Add-DeployerIpToStorage -Rg $ResourceGroup -Sa $storageName -Ip $deployerIp
+    Push-Location (Join-Path $root 'api')
+    try {
+        if (-not (Get-Command func -ErrorAction SilentlyContinue)) {
+            throw 'Azure Functions Core Tools (func) not found. Install via: npm i -g azure-functions-core-tools@4'
+        }
+        func azure functionapp publish $funcName --python --build remote
+        Assert-LastSuccess 'func publish'
+    } finally { Pop-Location }
+} finally {
+    Remove-DeployerIpFromStorage -Rg $ResourceGroup -Sa $storageName -Ip $deployerIp
+}
 
 # 5. Build & deploy web
 if (-not $SkipBuild) {
@@ -133,14 +176,33 @@ if (-not (Get-Command swa -ErrorAction SilentlyContinue)) {
 swa deploy (Join-Path $root 'web\dist') --deployment-token $swaToken --env production
 
 # 6. Seed cost table
-Write-Step 'Seeding cost_table container'
-$pyArgs = @(
-    Join-Path $root 'scripts\seed_cost_table.py'
-    '--endpoint', $cosmosEndpoint
-    '--database', $cosmosDb
-    '--seed-file', (Join-Path $root 'infra\cost_table_seed.json')
-)
-python @pyArgs
+# After VNet+PE rollout, the deployer machine can't reach Cosmos directly
+# (publicNetworkAccess may be Disabled). We call the Function App's bundled
+# /api/metrics/seed-cost-table endpoint instead — it runs inside the VNet and
+# upserts via MI over the Cosmos Private Endpoint.
+Write-Step 'Seeding cost_table via Function endpoint'
+$seedUrl = "https://$funcHost/api/metrics/seed-cost-table"
+$maxAttempts = 5
+for ($i=1; $i -le $maxAttempts; $i++) {
+    try {
+        $resp = Invoke-RestMethod -Uri $seedUrl -Method Post `
+            -Headers @{ 'X-Collector-Key' = $ingestKey } -TimeoutSec 60
+        Write-Host "    Upserted: $($resp.upserted) row(s); failed: $($resp.failed.Count)"
+        if ($resp.failed -and $resp.failed.Count -gt 0) {
+            Write-Host "    Failures (first 3):" -ForegroundColor Yellow
+            $resp.failed | Select-Object -First 3 | ForEach-Object { Write-Host "      $($_ | ConvertTo-Json -Compress)" }
+        }
+        break
+    } catch {
+        $code = $_.Exception.Response.StatusCode.value__
+        if ($i -lt $maxAttempts -and ($code -in 0,502,503,504)) {
+            Write-Host "    Attempt $i/$maxAttempts failed (HTTP $code), retrying in 10s..." -ForegroundColor Yellow
+            Start-Sleep -Seconds 10
+        } else {
+            throw "Seed via Function endpoint failed (HTTP $code): $($_.Exception.Message)"
+        }
+    }
+}
 
 Write-Host ''
 Write-Host '==> Deployment complete.' -ForegroundColor Green

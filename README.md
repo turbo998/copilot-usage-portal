@@ -13,16 +13,21 @@ estimate.
 
 ```
 collectors (CLI / OpenClaw / Hermes)  ──HTTPS──▶  Azure Functions /ingest
-                                                          │
+                                                          │ (VNet integrated)
                                                           ▼
-                                                   Cosmos DB (Free tier)
+                                              Cosmos DB (via Private Endpoint)
                                                           ▲
                                                           │
                             React on Static Web Apps  ──/api──┘  (Easy Auth via Entra)
 ```
 
-See `concept/docs/ARCHITECTURE.md` for the full design (13 confirmed decisions, data
-model, API spec, deploy plan, security and observability).
+**Networking (since 2026-05-12):** Function App is regional-VNet-integrated into
+`vnet-copilotusage-dev-mdu5wa` (10.30.0.0/16). All outbound calls to Storage and
+Cosmos go through Private Endpoints in `snet-pe` (10.30.2.0/27). Storage has
+`networkAcls.defaultAction=Deny`, Cosmos has `networkAclBypass=None` — so even
+if MCAPS policy flips `publicNetworkAccess` to `Disabled` on either, the runtime
+is unaffected. Function App ingress remains public so SWA can call its backend.
+See `concept/docs/ARCHITECTURE.md` for the full design.
 
 ## Repository layout
 
@@ -85,12 +90,25 @@ Pre-reqs: `az` (logged in), `python ≥ 3.11`, `node ≥ 18`, `func` (Core Tools
 The script:
 1. Creates the resource group (idempotent).
 2. Generates a 64-hex `INGEST_KEY` if `infra/main.parameters.json` still has the placeholder.
-3. Runs the Bicep deployment.
-4. Publishes Functions code (`func azure functionapp publish`).
+3. Runs the Bicep deployment (incl. VNet, subnets, private DNS zones, 3 Private Endpoints).
+4. **Temporarily** adds the deployer's public IP to the Storage firewall, publishes Functions
+   code (`func azure functionapp publish`), then removes the IP rule (try/finally — even on
+   failure).
 5. Builds `web/` and uploads `dist/` to Static Web Apps.
-6. Seeds the cost table from `infra/cost_table_seed.json`.
+6. Seeds the cost table by POSTing to the Function App's `/api/metrics/seed-cost-table`
+   endpoint (Function App writes through the Cosmos Private Endpoint using its managed
+   identity). No direct Cosmos access from the deployer machine is needed.
 
 When it's done it prints the portal URL, the ingest URL, and the X-Collector-Key.
+
+### MCAPS / public-network-access drift
+
+On MCAPS subscriptions, an external policy periodically resets the Storage
+account's `publicNetworkAccess` to `Disabled`. Because the Function App reaches
+Storage and Cosmos through Private Endpoints, **this no longer breaks the
+runtime** — only deploys are affected. If a deploy fails at step 4, re-run the
+script; it flips `publicNetworkAccess` back to `Enabled` and adds the deployer
+IP rule before calling `func publish`.
 
 ## Wire up collectors
 
@@ -146,11 +164,13 @@ curl 'https://func-xxx.azurewebsites.net/api/metrics/daily?from=2026-05-01&to=20
 
 | Resource | SKU | Approx monthly cost (BASIC self-use) |
 |----------|-----|--------------------------------------|
-| Cosmos DB | NoSQL Free Tier (1000 RU/s + 25 GB) | $0 |
-| Functions | Linux Consumption | < $1 (well under 1M free executions) |
+| Cosmos DB | NoSQL Serverless | < $1 (self-only RU usage) |
+| Functions | Flex Consumption (FC1) | < $1 |
 | Static Web App | Standard | $9 |
 | App Insights + Log Analytics | Pay-as-you-go | < $1 (self-only traffic) |
-| **Total** | | **≈ $10/mo** |
+| Private Endpoints | 3 × Standard | ≈ $21 (3 × $7.20) |
+| VNet / Private DNS zones | — | $0 |
+| **Total** | | **≈ $32/mo** |
 
 ## Caveats
 
