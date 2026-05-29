@@ -103,3 +103,28 @@ def estimate_credits(model: str, prompt_tokens: int, completion_tokens: int,
         + (completion_tokens / 1_000_000.0) * rate.get("credits_per_million_output", 0.0),
         6,
     )
+
+
+def credits_by_token_type(model: str, prompt_tokens: int, completion_tokens: int,
+                          cached_tokens: int = 0, cache_write_tokens: int = 0) -> dict:
+    """Split an event's AI Credits into the four billing buckets.
+
+    Returns a dict with keys ``input`` (fresh/uncached prompt), ``cached``,
+    ``cache_write`` and ``output``. The values sum to ``estimate_credits()``
+    for the same arguments. Unknown models yield all-zero buckets.
+    """
+    table = _cost_table()
+    rate = table.get(normalise_model_id(model))
+    if not rate:
+        return {"input": 0.0, "cached": 0.0, "cache_write": 0.0, "output": 0.0}
+    uncached = max(0, prompt_tokens - cached_tokens)
+    return {
+        "input": round((uncached / 1_000_000.0)
+                        * rate.get("credits_per_million_input", 0.0), 6),
+        "cached": round((cached_tokens / 1_000_000.0)
+                        * rate.get("credits_per_million_cached_input", 0.0), 6),
+        "cache_write": round((cache_write_tokens / 1_000_000.0)
+                        * rate.get("credits_per_million_cache_write", 0.0), 6),
+        "output": round((completion_tokens / 1_000_000.0)
+                        * rate.get("credits_per_million_output", 0.0), 6),
+    }

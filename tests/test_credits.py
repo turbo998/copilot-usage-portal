@@ -71,6 +71,25 @@ def estimate_credits(api_rows):
 
 
 @pytest.fixture(scope="module")
+def credits_by_token_type(api_rows):
+    """Load credits_by_token_type() from cost_table.py with in-memory seed."""
+    fake_repo = types.ModuleType("shared.cosmos_repo")
+    fake_repo.cost_container = lambda: None  # type: ignore[attr-defined]
+    sys.modules.setdefault("shared", types.ModuleType("shared"))
+    sys.modules["shared.cosmos_repo"] = fake_repo
+    src = (ROOT / "api" / "shared" / "cost_table.py").read_text(encoding="utf-8")
+    src = src.replace("from .cosmos_repo import cost_container",
+                      "from shared.cosmos_repo import cost_container")
+    ns: dict = {}
+    exec(compile(src, "cost_table.py", "exec"), ns)
+    table = {r["id"]: r for r in api_rows}
+    ns["_cost_table"].cache_clear()
+    # Swap the lru_cache'd loader so the helper reads our in-memory seed.
+    ns["_cost_table"] = lambda: table  # type: ignore[assignment]
+    return ns["credits_by_token_type"]
+
+
+@pytest.fixture(scope="module")
 def parsed_events():
     """Load copilot_cli adapter's JSON-block parser and parse a sample log."""
     sys.path.insert(0, str(ROOT / "collector"))
@@ -184,6 +203,36 @@ def test_estimate_credits_cache_write_rate(estimate_credits):
     assert combined == 2175.0, f"sonnet combined => {combined}, want 2175.0"
     # OpenAI gpt-5 has no cache_write rate -> contributes 0
     assert estimate_credits("gpt-5", 0, 0, 0, 1_000_000) == 0.0
+
+
+def test_credits_by_token_type_splits_components(credits_by_token_type):
+    """credits_by_token_type() splits an event's credits into the 4 billing
+    buckets (input / cached / cache_write / output) and the buckets must sum
+    to estimate_credits() for the same event."""
+    # Sonnet 4.6: input 300, cached 30, cache_write 375, output 1500 cr/M.
+    # 1M of each: uncached input = prompt - cached = 0 here, so pass prompt=1M+cached.
+    out = credits_by_token_type(
+        "claude-sonnet-4-6",
+        prompt_tokens=2_000_000, completion_tokens=1_000_000,
+        cached_tokens=1_000_000, cache_write_tokens=1_000_000,
+    )
+    # uncached input = 2M - 1M cached = 1M -> 300; cached 1M -> 30;
+    # cache_write 1M -> 375; output 1M -> 1500
+    assert out == {"input": 300.0, "cached": 30.0,
+                   "cache_write": 375.0, "output": 1500.0}, out
+
+
+def test_credits_by_token_type_unknown_model_zero(credits_by_token_type):
+    out = credits_by_token_type("totally-made-up", 1_000_000, 1_000_000,
+                                1_000_000, 1_000_000)
+    assert out == {"input": 0.0, "cached": 0.0,
+                   "cache_write": 0.0, "output": 0.0}
+
+
+def test_credits_by_token_type_gpt_no_cache_write(credits_by_token_type):
+    """gpt-5 has no cache_write rate -> that bucket is 0."""
+    out = credits_by_token_type("gpt-5", 0, 0, 0, 1_000_000)
+    assert out["cache_write"] == 0.0
 
 
 # -----------------------------------------------------------------------------
