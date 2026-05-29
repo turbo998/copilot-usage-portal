@@ -106,12 +106,21 @@ def _collect_from_file(path: Path, cursor: Cursor, host: str) -> list[dict]:
             continue
         seen_ids.add(msg_id)
 
-        prompt_tokens = int(usage.get("prompt_tokens") or usage.get("input_tokens") or 0)
+        # Anthropic-style responses (used by Claude via Copilot) expose:
+        #   input_tokens                — fresh (uncached) prompt input
+        #   cache_creation_input_tokens — cache write; billed as fresh prompt input
+        #   cache_read_input_tokens     — cache read; billed at the cheap cached rate
+        # OpenAI / Google responses don't have cache_creation_input_tokens — stays 0.
+        input_t = int(usage.get("prompt_tokens") or usage.get("input_tokens") or 0)
+        cache_write_t = int(usage.get("cache_creation_input_tokens") or 0)
+        prompt_tokens = input_t + cache_write_t
         completion_tokens = int(usage.get("completion_tokens") or usage.get("output_tokens") or 0)
-        total_tokens = int(usage.get("total_tokens") or 0) or (prompt_tokens + completion_tokens)
         cached_tokens = int(((usage.get("prompt_tokens_details") or {}).get("cached_tokens"))
                             or usage.get("cache_read_input_tokens") or 0)
         reasoning_tokens = int(((usage.get("completion_tokens_details") or {}).get("reasoning_tokens")) or 0)
+        total_tokens = int(usage.get("total_tokens") or 0) or (
+            prompt_tokens + cached_tokens + completion_tokens + reasoning_tokens
+        )
         model = obj.get("model") or "unknown"
         ts_iso = ts or datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
         # Session id is not in CLI logs reliably; derive from file name
