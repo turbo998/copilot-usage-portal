@@ -51,10 +51,21 @@ export interface CostResponse {
   to: string;
   daily: { date: string; credits: number; total: number }[];
   by_model: { model: string; credits: number; total: number }[];
+  // Added by feat/credits-backend; may be absent until that PR lands.
+  by_token_type?: { token_type: string; credits: number; total: number }[];
   total_credits: number;
   month_to_date_credits: number;
   projected_month_credits: number;
   notes: string;
+}
+
+export interface QuotaResponse {
+  id: string;
+  plan: 'Pro+' | 'Pro' | 'Business' | 'Enterprise' | string;
+  monthly_credits_included: number;
+  paid_credit_unit_price_usd: number;
+  updated_at?: string | null;
+  source?: 'cosmos' | 'default';
 }
 
 export type Filters = {
