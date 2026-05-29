@@ -11,7 +11,9 @@
     "usd_per_million_cached_input": 1.5,
     "source": "https://docs.github.com/en/copilot/concepts/billing/individual-plans",
     "captured_at": "2026-06-01",
-    "notes": "GitHub Copilot AI Credits (2026-06-01 usage-based billing). credits = USD * 100."
+    "notes": "GitHub Copilot AI Credits (2026-06-01 usage-based billing). credits = USD * 100.",
+    "usd_per_million_cache_write": 6.25,
+    "credits_per_million_cache_write": 625.0
   },
   {
     "id": "claude-opus-4-6",
@@ -24,7 +26,9 @@
     "usd_per_million_output": 75.0,
     "usd_per_million_cached_input": 1.5,
     "source": "https://docs.github.com/en/copilot/concepts/billing/individual-plans",
-    "captured_at": "2026-06-01"
+    "captured_at": "2026-06-01",
+    "usd_per_million_cache_write": 6.25,
+    "credits_per_million_cache_write": 625.0
   },
   {
     "id": "claude-sonnet-4-5",
@@ -37,7 +41,9 @@
     "usd_per_million_output": 15.0,
     "usd_per_million_cached_input": 0.3,
     "source": "https://docs.github.com/en/copilot/concepts/billing/individual-plans",
-    "captured_at": "2026-06-01"
+    "captured_at": "2026-06-01",
+    "usd_per_million_cache_write": 3.75,
+    "credits_per_million_cache_write": 375.0
   },
   {
     "id": "claude-sonnet-4-6",
@@ -50,7 +56,9 @@
     "usd_per_million_output": 15.0,
     "usd_per_million_cached_input": 0.3,
     "source": "https://docs.github.com/en/copilot/concepts/billing/individual-plans",
-    "captured_at": "2026-06-01"
+    "captured_at": "2026-06-01",
+    "usd_per_million_cache_write": 3.75,
+    "credits_per_million_cache_write": 375.0
   },
   {
     "id": "claude-haiku-4-5",
@@ -63,7 +71,9 @@
     "usd_per_million_output": 5.0,
     "usd_per_million_cached_input": 0.1,
     "source": "https://docs.github.com/en/copilot/concepts/billing/individual-plans",
-    "captured_at": "2026-06-01"
+    "captured_at": "2026-06-01",
+    "usd_per_million_cache_write": 1.25,
+    "credits_per_million_cache_write": 125.0
   },
   {
     "id": "claude-opus-4-6-1m",
@@ -77,7 +87,9 @@
     "usd_per_million_cached_input": 3.0,
     "source": "https://docs.anthropic.com/en/docs/about-claude/pricing",
     "captured_at": "2026-06-01",
-    "notes": "1M context window — 2x base rate."
+    "notes": "1M context window \u2014 2x base rate.",
+    "usd_per_million_cache_write": 12.5,
+    "credits_per_million_cache_write": 1250.0
   },
   {
     "id": "claude-opus-4-7-1m",
@@ -91,7 +103,9 @@
     "usd_per_million_cached_input": 3.0,
     "source": "https://docs.anthropic.com/en/docs/about-claude/pricing",
     "captured_at": "2026-06-01",
-    "notes": "1M context window — 2x base rate."
+    "notes": "1M context window \u2014 2x base rate.",
+    "usd_per_million_cache_write": 12.5,
+    "credits_per_million_cache_write": 1250.0
   },
   {
     "id": "gpt-5",
@@ -155,7 +169,7 @@
     "usd_per_million_input": 1.25,
     "usd_per_million_output": 10.0,
     "usd_per_million_cached_input": 0.125,
-    "source": "GitHub Copilot — Codex variant priced same as base gpt-5",
+    "source": "GitHub Copilot \u2014 Codex variant priced same as base gpt-5",
     "captured_at": "2026-06-01",
     "notes": "Estimated; verify against docs."
   },
@@ -169,7 +183,7 @@
     "usd_per_million_input": 0.05,
     "usd_per_million_output": 0.4,
     "usd_per_million_cached_input": 0.005,
-    "source": "GitHub Copilot — nano tier",
+    "source": "GitHub Copilot \u2014 nano tier",
     "captured_at": "2026-06-01",
     "notes": "Estimated; verify against docs."
   },

@@ -38,6 +38,19 @@ for seed_path in (ROOT / "api" / "cost_table_seed.json",
             else:
                 print(f"OK    {seed_path.name} {r['id']:24s} {kind:13s} "
                       f"= {usd} USD -> {cred} credits/M")
+        # All Anthropic models must carry an explicit cache_write rate.
+        if r.get("model_family") == "claude":
+            cred = r.get("credits_per_million_cache_write")
+            usd = r.get("usd_per_million_cache_write")
+            if usd is None or cred is None:
+                print(f"FAIL  {seed_path.name} {r['id']} missing cache_write rate")
+                failed += 1
+            elif abs(cred - usd * 100.0) > 1e-6:
+                print(f"FAIL  {seed_path.name} {r['id']} cache_write credits!=usd*100")
+                failed += 1
+            else:
+                print(f"OK    {seed_path.name} {r['id']:24s} cache_write   "
+                      f"= {usd} USD -> {cred} credits/M")
 
 # Both seed files must be identical (api/ is bundled with function app,
 # infra/ is referenced by Bicep — they MUST stay in sync).
@@ -71,13 +84,14 @@ _cost_table.cache_clear()
 ns["_cost_table"] = lambda: table  # type: ignore[assignment]
 # Also rewire the closure used inside estimate_credits by re-execing it.
 exec(
-    "def estimate_credits(model, prompt_tokens, completion_tokens, cached_tokens=0):\n"
+    "def estimate_credits(model, prompt_tokens, completion_tokens, cached_tokens=0, cache_write_tokens=0):\n"
     "    rate = table.get(normalise_model_id(model))\n"
     "    if not rate: return 0.0\n"
     "    uncached = max(0, prompt_tokens - cached_tokens)\n"
     "    return round(\n"
     "        (uncached / 1_000_000.0) * rate.get('credits_per_million_input', 0.0)\n"
     "        + (cached_tokens / 1_000_000.0) * rate.get('credits_per_million_cached_input', 0.0)\n"
+    "        + (cache_write_tokens / 1_000_000.0) * rate.get('credits_per_million_cache_write', 0.0)\n"
     "        + (completion_tokens / 1_000_000.0) * rate.get('credits_per_million_output', 0.0),\n"
     "        6,\n"
     "    )\n",
@@ -95,6 +109,23 @@ assert estimate_credits("gpt-5", 1_000_000, 0, 1_000_000) == 12.5
 assert estimate_credits("claude-opus-4-7", 1_000_000, 1_000_000) == 9000.0
 # Unknown model -> 0
 assert estimate_credits("totally-made-up", 1000, 1000) == 0.0
+
+# cache_write must use its own rate, NOT the fresh-input rate.
+# Sonnet 4.6: input $3 -> 300 cr/M; cache_write $3.75 -> 375 cr/M.
+# 1M cache_write tokens alone => 375 credits (would be 300 if mis-billed as input).
+sonnet_cw = estimate_credits("claude-sonnet-4-6", 0, 0, 0, 1_000_000)
+assert sonnet_cw == 375.0, f"sonnet cache_write 1M => {sonnet_cw}, want 375.0"
+sonnet_in = estimate_credits("claude-sonnet-4-6", 1_000_000, 0)
+assert sonnet_in == 300.0 and sonnet_cw != sonnet_in, \
+    f"cache_write must use cache_write rate, not input ({sonnet_cw} vs {sonnet_in})"
+# Combined: 1M input + 1M cache_write + 1M output on sonnet-4-6
+# = 300 + 375 + 1500 = 2175
+combined = estimate_credits("claude-sonnet-4-6", 1_000_000, 1_000_000, 0, 1_000_000)
+assert combined == 2175.0, f"sonnet combined => {combined}, want 2175.0"
+# OpenAI gpt-5 has no cache_write rate -> contributes 0
+assert estimate_credits("gpt-5", 0, 0, 0, 1_000_000) == 0.0
+print("OK    estimate_credits() cache_write uses dedicated rate")
+
 print("OK    estimate_credits() arithmetic for usage-based billing")
 
 # -----------------------------------------------------------------------------
@@ -145,12 +176,13 @@ assert len(events) == 2, f"expected 2 json blocks, got {len(events)}"
 u = events[0][1]["usage"]
 input_t = int(u.get("prompt_tokens") or u.get("input_tokens") or 0)
 cache_write_t = int(u.get("cache_creation_input_tokens") or 0)
-prompt_tokens = input_t + cache_write_t
+prompt_tokens = input_t  # cache_write is now a separate field, not folded in
 cached_tokens = int(((u.get("prompt_tokens_details") or {}).get("cached_tokens"))
                     or u.get("cache_read_input_tokens") or 0)
-assert prompt_tokens == 150, f"prompt_tokens={prompt_tokens}, want 150 (100 fresh + 50 cache_write)"
+assert prompt_tokens == 100, f"prompt_tokens={prompt_tokens}, want 100 (fresh only)"
+assert cache_write_t == 50, f"cache_write_t={cache_write_t}, want 50"
 assert cached_tokens == 200, f"cached_tokens={cached_tokens}, want 200"
-print(f"OK    Anthropic usage parsed: prompt={prompt_tokens} cached={cached_tokens}")
+print(f"OK    Anthropic usage parsed: prompt={prompt_tokens} cache_write={cache_write_t} cached={cached_tokens}")
 
 # For OpenAI block: cache_creation_input_tokens absent -> 0
 u = events[1][1]["usage"]

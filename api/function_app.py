@@ -36,12 +36,14 @@ def _normalise_event(ev: dict) -> dict:
     pt = int(ev.get("prompt_tokens") or 0)
     ct = int(ev.get("completion_tokens") or 0)
     cached = int(ev.get("cached_tokens") or 0)
+    cache_write = int(ev.get("cache_write_tokens") or 0)
     reasoning = int(ev.get("reasoning_tokens") or 0)
     ev["prompt_tokens"] = pt
     ev["completion_tokens"] = ct
     ev["cached_tokens"] = cached
+    ev["cache_write_tokens"] = cache_write
     ev["reasoning_tokens"] = reasoning
-    ev["total_tokens"] = int(ev.get("total_tokens") or (pt + ct))
+    ev["total_tokens"] = int(ev.get("total_tokens") or (pt + ct + cache_write))
     # Date partition helper from ts
     ts = ev.get("ts") or ""
     try:
@@ -49,7 +51,7 @@ def _normalise_event(ev: dict) -> dict:
     except Exception:
         ev["date"] = datetime.now(timezone.utc).date().isoformat()
     # Cost
-    ev["estimated_credits"] = estimate_credits(raw_model, pt, ct, cached)
+    ev["estimated_credits"] = estimate_credits(raw_model, pt, ct, cached, cache_write)
     return ev
 
 

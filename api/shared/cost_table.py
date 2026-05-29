@@ -84,8 +84,13 @@ def model_family(model: str) -> str:
 
 
 def estimate_credits(model: str, prompt_tokens: int, completion_tokens: int,
-                     cached_tokens: int = 0) -> float:
-    """Return AI Credits estimate. Falls back to 0 if model unknown."""
+                     cached_tokens: int = 0, cache_write_tokens: int = 0) -> float:
+    """Return AI Credits estimate. Falls back to 0 if model unknown.
+
+    ``cache_write_tokens`` are billed separately from regular input tokens
+    (Anthropic-style cache_creation pricing). For models without a dedicated
+    cache_write rate this term contributes 0.
+    """
     table = _cost_table()
     rate = table.get(normalise_model_id(model))
     if not rate:
@@ -94,6 +99,7 @@ def estimate_credits(model: str, prompt_tokens: int, completion_tokens: int,
     return round(
         (uncached / 1_000_000.0) * rate.get("credits_per_million_input", 0.0)
         + (cached_tokens / 1_000_000.0) * rate.get("credits_per_million_cached_input", 0.0)
+        + (cache_write_tokens / 1_000_000.0) * rate.get("credits_per_million_cache_write", 0.0)
         + (completion_tokens / 1_000_000.0) * rate.get("credits_per_million_output", 0.0),
         6,
     )
