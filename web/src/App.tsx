@@ -5,6 +5,7 @@ import ByModel from './pages/ByModel';
 import Heatmap from './pages/Heatmap';
 import Sessions from './pages/Sessions';
 import Cost from './pages/Cost';
+import Credits from './pages/Credits';
 
 const navItems = [
   { to: '/', label: 'Overview' },
@@ -13,6 +14,7 @@ const navItems = [
   { to: '/heatmap', label: 'Heatmap' },
   { to: '/sessions', label: 'Sessions' },
   { to: '/cost', label: 'Cost' },
+  { to: '/credits', label: 'Credits' },
 ];
 
 export default function App() {
@@ -43,6 +45,7 @@ export default function App() {
           <Route path="/heatmap" element={<Heatmap />} />
           <Route path="/sessions" element={<Sessions />} />
           <Route path="/cost" element={<Cost />} />
+          <Route path="/credits" element={<Credits />} />
         </Routes>
       </main>
     </div>

@@ -32,6 +32,27 @@ def cost_container() -> ContainerProxy:
     return container(os.environ["COSMOS_COST_CONTAINER"])
 
 
+def plan_config_container() -> ContainerProxy:
+    """Cosmos container that stores the active GHCP plan configuration.
+
+    Schema (id='current'):
+        {
+          "id": "current",
+          "plan": "Pro+" | "Pro" | "Business" | "Enterprise",
+          "monthly_credits_included": int,
+          "paid_credit_unit_price_usd": float,
+          "updated_at": ISO-8601 string
+        }
+
+    The container name comes from COSMOS_PLAN_CONFIG_CONTAINER, defaulting
+    to ``plan_config`` so existing deployments can opt in without changing
+    Bicep parameters. Callers must tolerate the container not existing yet
+    (see ``/api/quota`` for the fallback behaviour).
+    """
+    name = os.environ.get("COSMOS_PLAN_CONFIG_CONTAINER", "plan_config")
+    return container(name)
+
+
 def upsert_event(event: dict) -> tuple[bool, bool]:
     """Upsert a usage event. Returns (accepted, was_duplicate)."""
     c = events_container()

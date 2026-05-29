@@ -1,6 +1,7 @@
 import useSWR from 'swr';
 import type {
-  BreakdownRow, CostResponse, DailyMetric, Filters, HeatmapResponse, TopSession, WeeklyMetric,
+  BreakdownRow, CostResponse, DailyMetric, Filters, HeatmapResponse,
+  QuotaResponse, TopSession, WeeklyMetric,
 } from './types';
 
 const fetcher = async (url: string) => {
@@ -62,5 +63,11 @@ export function useTopSessions(n: number, filters?: Filters) {
 export function useCost(filters?: Filters) {
   const { data, error, isLoading } = useSWR<CostResponse>(
     `/api/metrics/cost${qs(filters)}`, fetcher, swrOpts);
+  return { data, error, isLoading };
+}
+
+export function useQuota() {
+  const { data, error, isLoading } = useSWR<QuotaResponse>(
+    `/api/quota`, fetcher, swrOpts);
   return { data, error, isLoading };
 }

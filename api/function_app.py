@@ -479,3 +479,51 @@ def admin_wipe_client(req: func.HttpRequest) -> func.HttpResponse:
 
     return _json({"client": client_name, "deleted": deleted,
                   "failed": failed, "queried": len(items)})
+
+
+# ---------------------------------------------------------------------------
+# /api/quota — active GHCP plan configuration
+#
+# Returns the singleton document (id='current') from the Cosmos `plan_config`
+# container. If the container or document doesn't exist yet (e.g. fresh
+# deployment before infra has provisioned it), we fall back to a sensible
+# Pro+ default so the Credits page can still render. Admins are expected to
+# upsert their real plan into Cosmos out-of-band.
+# ---------------------------------------------------------------------------
+
+DEFAULT_PLAN_CONFIG = {
+    "id": "current",
+    "plan": "Pro+",
+    "monthly_credits_included": 1500,
+    "paid_credit_unit_price_usd": 0.01,
+    "updated_at": None,
+    "source": "default",
+}
+
+
+@app.route(route="quota", methods=["GET"], auth_level=func.AuthLevel.ANONYMOUS)
+def quota(req: func.HttpRequest) -> func.HttpResponse:
+    ok, err = _guard(req)
+    if not ok:
+        return err  # type: ignore[return-value]
+    try:
+        from shared.cosmos_repo import plan_config_container
+        from azure.cosmos import exceptions as cosmos_exc
+
+        c = plan_config_container()
+        try:
+            doc = c.read_item(item="current", partition_key="current")
+        except cosmos_exc.CosmosResourceNotFoundError:
+            payload = dict(DEFAULT_PLAN_CONFIG)
+            payload["updated_at"] = datetime.now(timezone.utc).isoformat()
+            return _json(payload)
+        # Strip Cosmos system fields for a clean response
+        clean = {k: v for k, v in doc.items() if not k.startswith("_")}
+        clean.setdefault("source", "cosmos")
+        return _json(clean)
+    except Exception as exc:  # pragma: no cover — container may not exist yet
+        log.warning("quota: falling back to default plan (%s)", exc)
+        payload = dict(DEFAULT_PLAN_CONFIG)
+        payload["updated_at"] = datetime.now(timezone.utc).isoformat()
+        payload["source"] = "default"
+        return _json(payload)
