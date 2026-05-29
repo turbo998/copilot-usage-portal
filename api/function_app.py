@@ -10,7 +10,8 @@ import azure.functions as func
 
 from shared.auth import require_collector_key, require_principal
 from shared.cosmos_repo import events_container, query, upsert_event
-from shared.cost_table import estimate_credits, model_family, normalise_model_id
+from shared.cost_table import (credits_by_token_type, estimate_credits,
+                               model_family, normalise_model_id)
 from shared.time_utils import filter_clause, parse_range
 
 app = func.FunctionApp(http_auth_level=func.AuthLevel.ANONYMOUS)
@@ -36,12 +37,14 @@ def _normalise_event(ev: dict) -> dict:
     pt = int(ev.get("prompt_tokens") or 0)
     ct = int(ev.get("completion_tokens") or 0)
     cached = int(ev.get("cached_tokens") or 0)
+    cache_write = int(ev.get("cache_write_tokens") or 0)
     reasoning = int(ev.get("reasoning_tokens") or 0)
     ev["prompt_tokens"] = pt
     ev["completion_tokens"] = ct
     ev["cached_tokens"] = cached
+    ev["cache_write_tokens"] = cache_write
     ev["reasoning_tokens"] = reasoning
-    ev["total_tokens"] = int(ev.get("total_tokens") or (pt + ct))
+    ev["total_tokens"] = int(ev.get("total_tokens") or (pt + ct + cache_write))
     # Date partition helper from ts
     ts = ev.get("ts") or ""
     try:
@@ -49,7 +52,7 @@ def _normalise_event(ev: dict) -> dict:
     except Exception:
         ev["date"] = datetime.now(timezone.utc).date().isoformat()
     # Cost
-    ev["estimated_credits"] = estimate_credits(raw_model, pt, ct, cached)
+    ev["estimated_credits"] = estimate_credits(raw_model, pt, ct, cached, cache_write)
     return ev
 
 
@@ -339,9 +342,17 @@ def metrics_cost(req: func.HttpRequest) -> func.HttpResponse:
         return err  # type: ignore[return-value]
     filters = _resolve_filters(req)
     events = _fetch_raw_events(filters, ("date", "model", "total_tokens",
-                                         "estimated_credits"))
+                                         "estimated_credits", "prompt_tokens",
+                                         "completion_tokens", "cached_tokens",
+                                         "cache_write_tokens"))
     by_date: dict[str, dict] = {}
     by_model: dict[str, dict] = {}
+    token_type_credits: dict[str, float] = {
+        "input": 0.0, "cached": 0.0, "cache_write": 0.0, "output": 0.0,
+    }
+    token_type_tokens: dict[str, int] = {
+        "input": 0, "cached": 0, "cache_write": 0, "output": 0,
+    }
     for ev in events:
         d = ev.get("date") or ""
         m = ev.get("model") or "unknown"
@@ -353,12 +364,33 @@ def metrics_cost(req: func.HttpRequest) -> func.HttpResponse:
         b2 = by_model.setdefault(m, {"model": m, "credits": 0.0, "total": 0})
         b2["credits"] += cc
         b2["total"] += tt
+        # Per-token-type credit split (reuses the seed rate table).
+        pt = int(ev.get("prompt_tokens") or 0)
+        ct = int(ev.get("completion_tokens") or 0)
+        cached = int(ev.get("cached_tokens") or 0)
+        cw = int(ev.get("cache_write_tokens") or 0)
+        split = credits_by_token_type(m, pt, ct, cached, cw)
+        for k in token_type_credits:
+            token_type_credits[k] += split[k]
+        token_type_tokens["input"] += max(0, pt - cached)
+        token_type_tokens["cached"] += cached
+        token_type_tokens["cache_write"] += cw
+        token_type_tokens["output"] += ct
     daily = sorted(by_date.values(), key=lambda r: r["date"])
     for r in daily:
         r["credits"] = round(r["credits"], 4)
     by_model_rows = sorted(by_model.values(), key=lambda r: r["credits"], reverse=True)
     for r in by_model_rows:
         r["credits"] = round(r["credits"], 4)
+
+    by_token_type_rows = sorted(
+        [
+            {"token_type": k, "credits": round(token_type_credits[k], 4),
+             "total": token_type_tokens[k]}
+            for k in ("input", "cached", "cache_write", "output")
+        ],
+        key=lambda r: r["credits"], reverse=True,
+    )
 
     total_credits = round(sum(float(r.get("credits") or 0) for r in daily), 4)
 
@@ -379,6 +411,7 @@ def metrics_cost(req: func.HttpRequest) -> func.HttpResponse:
     return _json({
         "from": filters["from"], "to": filters["to"],
         "daily": daily, "by_model": by_model_rows,
+        "by_token_type": by_token_type_rows,
         "total_credits": total_credits,
         "month_to_date_credits": round(mtd, 4),
         "projected_month_credits": projected,

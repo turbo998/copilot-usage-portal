@@ -86,12 +86,15 @@ class HermesAdapter:
             reason = int(r["reasoning_tokens"] or 0)
             # Match the canonical ingest schema (see api/function_app.py):
             # prompt_tokens = fresh prompt input;
-            # cached_tokens = cache reads (cheap); cache_write counts toward prompt.
-            prompt_tokens = input_t + cache_w
+            # cached_tokens = cache reads (cheap);
+            # cache_write_tokens = cache creation (billed at its own rate).
+            prompt_tokens = input_t
             cached_tokens = cache_r
+            cache_write_tokens = cache_w
             completion_tokens = output_t
             reasoning_tokens = reason
-            total_tokens = prompt_tokens + cached_tokens + completion_tokens + reasoning_tokens
+            total_tokens = (prompt_tokens + cached_tokens + cache_write_tokens
+                            + completion_tokens + reasoning_tokens)
 
             events.append({
                 "id": str(r["id"]),
@@ -102,6 +105,7 @@ class HermesAdapter:
                 "prompt_tokens": prompt_tokens,
                 "completion_tokens": completion_tokens,
                 "cached_tokens": cached_tokens,
+                "cache_write_tokens": cache_write_tokens,
                 "reasoning_tokens": reasoning_tokens,
                 "total_tokens": total_tokens,
                 "session_id": str(r["id"]),

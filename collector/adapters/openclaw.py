@@ -49,14 +49,15 @@ def _collect_file(path: Path, cursor: Cursor, host: str) -> list[dict]:
         input_t = int(usage.get("input") or 0)
         output_t = int(usage.get("output") or 0)
         cache_read = int(usage.get("cacheRead") or 0)
-        cache_write = int(usage.get("cacheWrite") or 0)
-        # cacheWrite tokens are billed as fresh prompt input.
-        prompt_tokens = input_t + cache_write
+        cache_write_tokens = int(usage.get("cacheWrite") or 0)
+        # cacheWrite tokens are billed at a dedicated cache_write rate
+        # (separate from fresh prompt input).
+        prompt_tokens = input_t
         cached_tokens = cache_read
         completion_tokens = output_t
         total_tokens = (
             int(usage.get("total") or 0)
-            or (prompt_tokens + cached_tokens + completion_tokens)
+            or (prompt_tokens + cached_tokens + cache_write_tokens + completion_tokens)
         )
         model = ev.get("modelId") or "unknown"
         sid = ev.get("sessionId") or path.stem
@@ -74,6 +75,7 @@ def _collect_file(path: Path, cursor: Cursor, host: str) -> list[dict]:
             "prompt_tokens": prompt_tokens,
             "completion_tokens": completion_tokens,
             "cached_tokens": cached_tokens,
+            "cache_write_tokens": cache_write_tokens,
             "reasoning_tokens": 0,
             "total_tokens": total_tokens,
             "session_id": sid,

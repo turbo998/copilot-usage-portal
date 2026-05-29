@@ -1,5 +1,8 @@
 # Copilot Usage Portal
 
+> **Changelog**
+> - **2026-06**: AI Credits 计费切换 + cache_write 独立计费 + 回填脚本（`scripts/backfill_credits.py`）
+
 A private Azure dashboard that tracks GitHub Copilot token usage across three clients
 — **Copilot CLI**, **OpenClaw**, **Hermes** — and shows daily/weekly trends, model and
 client breakdowns, a client × model heatmap, top sessions, and an AI Credits cost

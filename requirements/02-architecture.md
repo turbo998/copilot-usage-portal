@@ -71,6 +71,7 @@ This document captures the architectural decisions already made. The cloud-archi
   "prompt_tokens": 20378,
   "completion_tokens": 82,
   "cached_tokens": 19981,
+  "cache_write_tokens": 0,
   "reasoning_tokens": 0,
   "total_tokens": 20460,
   "session_id": "ba9b2f73-...",

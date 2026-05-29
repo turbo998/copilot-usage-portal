@@ -33,7 +33,20 @@ def cost_container() -> ContainerProxy:
 
 
 def upsert_event(event: dict) -> tuple[bool, bool]:
-    """Upsert a usage event. Returns (accepted, was_duplicate)."""
+    """Upsert a usage event. Returns (accepted, was_duplicate).
+
+    Schema notes (kept here so the repo is self-documenting):
+      Required: id, client, ts, date, model, prompt_tokens, completion_tokens,
+                cached_tokens, total_tokens.
+      Optional (default 0, backward-compatible with pre-2026-06 events):
+        - cache_write_tokens: Anthropic-style cache_creation_input_tokens,
+          billed at a dedicated cache_write rate (see cost_table.py).
+        - reasoning_tokens
+        - estimated_credits
+    """
+    # Backward-compat: older events predate the dedicated cache_write field.
+    event.setdefault("cache_write_tokens", 0)
+    event.setdefault("reasoning_tokens", 0)
     c = events_container()
     try:
         # Use create_item with id; if exists, treat as duplicate (idempotent)
