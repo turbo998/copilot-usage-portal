@@ -87,7 +87,7 @@ export default function Cost() {
         </Card>
 
         <Card title="Credits by model">
-          {(data?.by_model?.length ?? 0) === 0 ? <Empty /> : (
+          {isLoading ? <Empty message="Loading…" /> : (data?.by_model?.length ?? 0) === 0 ? <Empty /> : (
             <ResponsiveContainer width="100%" height={300}>
               <BarChart data={data!.by_model.slice(0, 12)} layout="vertical" margin={{ left: 80 }}>
                 <CartesianGrid stroke="#1f2530" />
