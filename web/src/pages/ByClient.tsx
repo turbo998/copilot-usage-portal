@@ -46,7 +46,7 @@ export default function ByClient() {
 
       <div className="grid lg:grid-cols-2 gap-3 mb-3">
         <Card title="Share of total tokens">
-          {(breakdown.data?.data?.length ?? 0) === 0 ? <Empty /> : (
+          {breakdown.isLoading ? <Empty message="Loading…" /> : (breakdown.data?.data?.length ?? 0) === 0 ? <Empty /> : (
             <ResponsiveContainer width="100%" height={280}>
               <PieChart>
                 <Pie data={breakdown.data!.data} dataKey="total" nameKey="key" outerRadius={100} innerRadius={56}>
@@ -61,7 +61,7 @@ export default function ByClient() {
         </Card>
 
         <Card title="Per-client totals">
-          {(breakdown.data?.data?.length ?? 0) === 0 ? <Empty /> : (
+          {breakdown.isLoading ? <Empty message="Loading…" /> : (breakdown.data?.data?.length ?? 0) === 0 ? <Empty /> : (
             <table className="w-full text-sm">
               <thead className="text-muted text-xs">
                 <tr>
@@ -93,7 +93,7 @@ export default function ByClient() {
       </div>
 
       <Card title="Daily stacked tokens by client">
-        {stacked.length === 0 ? <Empty /> : (
+        {(cliDaily.isLoading || oclawDaily.isLoading || hermesDaily.isLoading) ? <Empty message="Loading…" /> : stacked.length === 0 ? <Empty /> : (
           <ResponsiveContainer width="100%" height={320}>
             <BarChart data={stacked}>
               <CartesianGrid stroke="#1f2530" />

@@ -24,7 +24,7 @@ export default function ByModel() {
 
       <div className="grid lg:grid-cols-3 gap-3 mb-3">
         <Card title="Family share">
-          {(byFamily.data?.data?.length ?? 0) === 0 ? <Empty /> : (
+          {byFamily.isLoading ? <Empty message="Loading…" /> : (byFamily.data?.data?.length ?? 0) === 0 ? <Empty /> : (
             <ResponsiveContainer width="100%" height={260}>
               <PieChart>
                 <Pie data={byFamily.data!.data} dataKey="total" nameKey="key" outerRadius={90} innerRadius={50}>
@@ -40,7 +40,7 @@ export default function ByModel() {
 
         <div className="lg:col-span-2">
           <Card title="Top models">
-            {(byModel.data?.data?.length ?? 0) === 0 ? <Empty /> : (
+            {byModel.isLoading ? <Empty message="Loading…" /> : (byModel.data?.data?.length ?? 0) === 0 ? <Empty /> : (
               <ResponsiveContainer width="100%" height={260}>
                 <BarChart data={byModel.data!.data.slice(0, 12)} layout="vertical" margin={{ left: 80 }}>
                   <CartesianGrid stroke="#1f2530" />
@@ -61,7 +61,7 @@ export default function ByModel() {
       </div>
 
       <Card title="All models">
-        {(byModel.data?.data?.length ?? 0) === 0 ? <Empty /> : (
+        {byModel.isLoading ? <Empty message="Loading…" /> : (byModel.data?.data?.length ?? 0) === 0 ? <Empty /> : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="text-muted text-xs">

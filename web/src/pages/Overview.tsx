@@ -84,7 +84,7 @@ export default function Overview() {
         </Card>
 
         <Card title="Distribution by client">
-          {(byClient.data?.data?.length ?? 0) === 0 ? <Empty /> : (
+          {byClient.isLoading ? <Empty message="Loading…" /> : (byClient.data?.data?.length ?? 0) === 0 ? <Empty /> : (
             <ResponsiveContainer width="100%" height={280}>
               <PieChart>
                 <Pie data={byClient.data!.data} dataKey="total" nameKey="key"
@@ -104,7 +104,7 @@ export default function Overview() {
 
       <div className="grid lg:grid-cols-2 gap-3 mt-3">
         <Card title="Top models (tokens)">
-          {(byModel.data?.data?.length ?? 0) === 0 ? <Empty /> : (
+          {byModel.isLoading ? <Empty message="Loading…" /> : (byModel.data?.data?.length ?? 0) === 0 ? <Empty /> : (
             <table className="w-full text-sm">
               <thead className="text-muted text-xs">
                 <tr>
@@ -129,7 +129,7 @@ export default function Overview() {
         </Card>
 
         <Card title="Daily AI Credits estimate">
-          {(daily.data?.data?.length ?? 0) === 0 ? <Empty /> : (
+          {daily.isLoading ? <Empty message="Loading…" /> : (daily.data?.data?.length ?? 0) === 0 ? <Empty /> : (
             <ResponsiveContainer width="100%" height={280}>
               <AreaChart data={daily.data!.data}>
                 <defs>
