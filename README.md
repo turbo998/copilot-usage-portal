@@ -144,7 +144,7 @@ The smoke test below was run against this machine's existing Copilot CLI logs (n
 network calls, no deploy required) and produced realistic numbers:
 
 ```
-parsed 3500 events from C:\Users\qichen2\.copilot\logs
+parsed 3500 events from C:\Users\YOUR_USER\.copilot\logs
 totals: prompt=340,310,884  completion=2,135,613  cached=304,591,024
 est credits: total=558.52  cache_hit=89.5%
 top model:   claude-opus-4-6-1m  →  381 credits (68% of spend)
