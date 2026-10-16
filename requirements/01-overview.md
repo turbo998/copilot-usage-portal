@@ -9,7 +9,7 @@ One person (the owner). The portal is **not** multi-tenant. Authentication only 
 ## Scope of "client" tracking
 Three Copilot-consuming clients must be supported:
 
-1. **GitHub Copilot CLI** running on the owner's local Windows machine (`qichen2`).
+1. **GitHub Copilot CLI** running on the owner's local Windows machine (`<local-user>`).
 2. **OpenClaw** running on Azure VM `openclaw-sg-vm` in `OPENCLAW-RG` (southeastasia) — a WeChat-to-Copilot gateway.
 3. **Hermes** running on Azure VM `vm-hermes-agent-sg` in `RG-HERMES-AGENT-SG` (southeastasia) — a Copilot agent runtime.
 
