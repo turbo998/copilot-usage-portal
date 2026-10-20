@@ -8,6 +8,7 @@ from typing import Any
 
 import azure.functions as func
 
+from shared.aggregate import aggregate_rows, fold_grouped, groupby_sql
 from shared.auth import require_collector_key, require_principal
 from shared.cosmos_repo import events_container, query, upsert_event
 from shared.cost_table import (credits_by_token_type, estimate_credits,
@@ -133,15 +134,38 @@ def _json(payload: Any, status: int = 200) -> func.HttpResponse:
 def _fetch_raw_events(filters: dict, fields: tuple[str, ...]) -> list[dict]:
     """Fetch raw events as a list of dicts; aggregation is done client-side.
 
-    Cosmos rejects cross-partition GROUP BY on the events container
-    (partition key = /client) unless you use 'SELECT VALUE <agg>' alone.
-    Pulling raw rows + aggregating in Python keeps the handlers simple and
-    works with serverless Cosmos. Volume is bounded by the date-range filter.
+    This is the FALLBACK path. Preferred is :func:`_grouped_rows` which pushes
+    the SUM/COUNT down into Cosmos via GROUP BY (sub-second instead of pulling
+    160k+ rows over the wire and summing in Python, which took ~5s and made the
+    SPA's first paint show zeros). We keep this path because it always works
+    and is the safety net if a GROUP BY query is ever rejected.
     """
     where, params = filter_clause(filters)
     select = ", ".join(f"c.{f}" for f in fields)
     sql = f"SELECT {select} FROM c WHERE {where}"
     return query(sql, params=params)
+
+
+def _grouped_rows(filters: dict, key_expr: str, key_name: str) -> list[dict]:
+    """Aggregate per ``key_expr`` via Cosmos GROUP BY, folding to canonical
+    buckets. Falls back to pulling raw rows + Python aggregation if the
+    server-side GROUP BY query fails for any reason (so results are never
+    worse than before).
+    """
+    where, params = filter_clause(filters)
+    key_field = key_expr.split(".", 1)[-1]  # "c.date" -> "date"
+    try:
+        sql = groupby_sql(key_expr, where)
+        grouped = query(sql, params=params)
+        return fold_grouped(grouped, key_name=key_name)
+    except Exception as exc:  # pragma: no cover - exercised in prod only
+        logging.warning("GROUP BY push-down failed for %s (%s); "
+                        "falling back to Python aggregation", key_expr, exc)
+        events = _fetch_raw_events(
+            filters, (key_field, "prompt_tokens", "completion_tokens",
+                      "cached_tokens", "reasoning_tokens", "total_tokens",
+                      "estimated_credits"))
+        return aggregate_rows(events, key_field=key_field, key_name=key_name)
 
 
 def _new_bucket() -> dict:
@@ -169,15 +193,7 @@ def metrics_daily(req: func.HttpRequest) -> func.HttpResponse:
     if not ok:
         return err  # type: ignore[return-value]
     filters = _resolve_filters(req)
-    events = _fetch_raw_events(filters, ("date", "prompt_tokens", "completion_tokens",
-                                         "cached_tokens", "reasoning_tokens",
-                                         "total_tokens", "estimated_credits"))
-    by_date: dict[str, dict] = {}
-    for ev in events:
-        d = ev.get("date") or ""
-        bucket = by_date.setdefault(d, {"date": d, **_new_bucket()})
-        _accumulate(bucket, ev)
-    rows = sorted(by_date.values(), key=lambda r: r["date"])
+    rows = _grouped_rows(filters, "c.date", "date")
     for r in rows:
         r["credits"] = round(r["credits"], 4)
     return _json({"from": filters["from"], "to": filters["to"], "data": rows})
@@ -199,20 +215,25 @@ def metrics_weekly(req: func.HttpRequest) -> func.HttpResponse:
     if not ok:
         return err  # type: ignore[return-value]
     filters = _resolve_filters(req, default_days=84)
-    events = _fetch_raw_events(filters, ("date", "prompt_tokens", "completion_tokens",
-                                         "cached_tokens", "reasoning_tokens",
-                                         "total_tokens", "estimated_credits"))
+    # Aggregate by date server-side (<=84 rows), then roll dates into ISO weeks.
+    daily = _grouped_rows(filters, "c.date", "date")
     weekly: dict[str, dict] = {}
-    for ev in events:
-        d = ev.get("date") or ""
-        if not d:
+    for d in daily:
+        date_str = d["date"]
+        if not date_str:
             continue
         try:
-            wk = _iso_week(d)
+            wk = _iso_week(date_str)
         except Exception:
             continue
         bucket = weekly.setdefault(wk, {"week": wk, **_new_bucket()})
-        _accumulate(bucket, ev)
+        bucket["prompt"] += d["prompt"]
+        bucket["completion"] += d["completion"]
+        bucket["cached"] += d["cached"]
+        bucket["reasoning"] += d["reasoning"]
+        bucket["total"] += d["total"]
+        bucket["credits"] += d["credits"]
+        bucket["calls"] += d["calls"]
     out = sorted(weekly.values(), key=lambda r: r["week"])
     for r in out:
         r["credits"] = round(r["credits"], 4)
@@ -235,17 +256,10 @@ def metrics_breakdown(req: func.HttpRequest) -> func.HttpResponse:
     if dim not in ALLOWED_DIMS:
         return _json({"error": f"dim must be one of {sorted(ALLOWED_DIMS)}"}, 400)
     filters = _resolve_filters(req)
-    events = _fetch_raw_events(filters, (dim, "prompt_tokens", "completion_tokens",
-                                         "cached_tokens", "reasoning_tokens",
-                                         "total_tokens", "estimated_credits"))
-    by_key: dict[str, dict] = {}
-    for ev in events:
-        k = ev.get(dim) or "unknown"
-        bucket = by_key.setdefault(k, {"key": k, **_new_bucket()})
-        _accumulate(bucket, ev)
-    grand = sum(b["total"] for b in by_key.values()) or 1
+    buckets = _grouped_rows(filters, f"c.{dim}", "key")
+    grand = sum(b["total"] for b in buckets) or 1
     rows = []
-    for b in by_key.values():
+    for b in buckets:
         rows.append({"key": b["key"], "total": b["total"],
                      "credits": round(b["credits"], 4), "calls": b["calls"],
                      "share": round(b["total"] / grand, 6)})
