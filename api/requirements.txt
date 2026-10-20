@@ -1,4 +1,4 @@
 azure-functions==1.21.3
 azure-cosmos==4.7.0
-azure-identity==1.18.0
+azure-identity==1.26.0
 python-dateutil==2.9.0.post0
